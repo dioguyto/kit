@@ -287,7 +287,8 @@ export async function render_response({
 		options,
 		branch.map((b) => b.server_data),
 		csp,
-		global
+		global,
+		client.app ? s(prefixed(client.app)) : undefined
 	);
 
 	if (page_config.ssr && page_config.csr) {
@@ -388,7 +389,7 @@ export async function render_response({
 			if (form_value) {
 				serialized.form = uneval_action_response(
 					form_value,
-					/** @type {string} */ (event.route.id),
+					/** @type {string} */(event.route.id),
 					options.hooks.transport
 				);
 			}
@@ -469,9 +470,8 @@ export async function render_response({
 			`;
 		csp.add_script(init_app);
 
-		body += `\n\t\t\t<script${
-			csp.script_needs_nonce ? ` nonce="${csp.nonce}"` : ''
-		}>${init_app}</script>\n\t\t`;
+		body += `\n\t\t\t<script${csp.script_needs_nonce ? ` nonce="${csp.nonce}"` : ''
+			}>${init_app}</script>\n\t\t`;
 	}
 
 	const headers = new Headers({
@@ -552,25 +552,25 @@ export async function render_response({
 
 	return !chunks
 		? text(transformed, {
-				status,
-				headers
-			})
+			status,
+			headers
+		})
 		: new Response(
-				new ReadableStream({
-					async start(controller) {
-						controller.enqueue(encoder.encode(transformed + '\n'));
-						for await (const chunk of chunks) {
-							controller.enqueue(encoder.encode(chunk));
-						}
-						controller.close();
-					},
+			new ReadableStream({
+				async start(controller) {
+					controller.enqueue(encoder.encode(transformed + '\n'));
+					for await (const chunk of chunks) {
+						controller.enqueue(encoder.encode(chunk));
+					}
+					controller.close();
+				},
 
-					type: 'bytes'
-				}),
-				{
-					headers
-				}
-			);
+				type: 'bytes'
+			}),
+			{
+				headers
+			}
+		);
 }
 
 /**
@@ -581,9 +581,10 @@ export async function render_response({
  * @param {Array<import('types').ServerDataNode | null>} nodes
  * @param {import('./csp.js').Csp} csp
  * @param {string} global
+ * @param {string | undefined} app
  * @returns {{ data: string, chunks: AsyncIterable<string> | null }}
  */
-function get_data(event, options, nodes, csp, global) {
+function get_data(event, options, nodes, csp, global, app) {
 	let promise_id = 1;
 	let count = 0;
 
@@ -596,7 +597,7 @@ function get_data(event, options, nodes, csp, global) {
 			count += 1;
 
 			thing
-				.then(/** @param {any} data */ (data) => ({ data }))
+				.then(/** @param {any} data */(data) => ({ data }))
 				.catch(
 					/** @param {any} error */ async (error) => ({
 						error: await handle_error_and_jsonify(event, options, error)
@@ -623,7 +624,15 @@ function get_data(event, options, nodes, csp, global) {
 						}
 
 						const nonce = csp.script_needs_nonce ? ` nonce="${csp.nonce}"` : '';
-						push(`<script${nonce}>${global}.resolve(${str})</script>\n`);
+						if (app) {
+							push(`<script${nonce}>
+						import(${app}).then((app) => {
+							${global}.resolve(${str})
+						});
+						</script>\n`);
+						} else {
+							push(`<script${nonce}>${global}.resolve(${str})</script>\n`);
+						}
 						if (count === 0) done();
 					}
 				);
@@ -643,9 +652,8 @@ function get_data(event, options, nodes, csp, global) {
 		const strings = nodes.map((node) => {
 			if (!node) return 'null';
 
-			return `{"type":"data","data":${devalue.uneval(node.data, replacer)},${stringify_uses(node)}${
-				node.slash ? `,"slash":${JSON.stringify(node.slash)}` : ''
-			}}`;
+			return `{"type":"data","data":${devalue.uneval(node.data, replacer)},${stringify_uses(node)}${node.slash ? `,"slash":${JSON.stringify(node.slash)}` : ''
+				}}`;
 		});
 
 		return {
@@ -653,6 +661,6 @@ function get_data(event, options, nodes, csp, global) {
 			chunks: count > 0 ? iterator : null
 		};
 	} catch (e) {
-		throw new Error(clarify_devalue_error(event, /** @type {any} */ (e)));
+		throw new Error(clarify_devalue_error(event, /** @type {any} */(e)));
 	}
 }
